@@ -1,7 +1,9 @@
+
 use std::{io::Read, process::Command};
 use encoding::{DecoderTrap, label::encoding_from_whatwg_label};
 use chrono::{Duration, Datelike};
 use postgres::{Client, NoTls};
+use reqwest::header;
 
 fn hex2str(u8vec: &[u8]) -> &str {
     let euckr = encoding_from_whatwg_label("euc-kr").unwrap();
@@ -13,11 +15,10 @@ fn string_to_static_str(s: String) -> &'static str {
     Box::leak(s.into_boxed_str())
 }
 
-
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut client = Client::connect("host=localhost user=postgres", NoTls).unwrap();
-
+     
     for row in client.query("SELECT id, name FROM TEST_TABLE", &[]).unwrap() {
         let id: i32 = row.get(0);
         let name: &str = row.get(1);
@@ -40,8 +41,8 @@ fn main() {
     }
 
     let search_date = format!("{}.{}.{}", year, month, day);
-    
-    let query = format!(r#"curl https://www.courtauction.go.kr/RetrieveRealEstMulDetailList.laf -d "page=default40&bubwLocGubun=1&jpDeptCd=000000&daepyoSidoCd=&daepyoSiguCd=&daepyoDongCd=&notifyLoc=on&rd1Cd=&rd2Cd=&realVowel=00000_55203&rd3Rd4Cd=&notifyRealRoad=on&saYear=2023&saSer=&ipchalGbncd=000331&lclsUtilCd=&mclsUtilCd=&sclsUtilCd=&gamEvalAmtGuganMin=&gamEvalAmtGuganMax=&notifyMinMgakPrcMin=&notifyMinMgakPrcMax=&areaGuganMin=&areaGuganMax=&yuchalCntGuganMin=&yuchalCntGuganMax=&notifyMinMgakPrcRateMin=&notifyMinMgakPrcRateMax=&srchJogKindcd=&mvRealGbncd=00031R&srnID=PNO102001&_NAVI_CMD=&_NAVI_SRNID=&_SRCH_SRNID=PNO102001&_CUR_CMD=InitMulSrch.laf&_CUR_SRNID=PNO102001&_NEXT_CMD=&_NEXT_SRNID=PNO102002&_PRE_SRNID=&_LOGOUT_CHK=&_FORM_YN=Y&PNIPassMsg=^%^C1^%^A4^%^C3^%^A5^%^BF^%^A1+^%^C0^%^C7^%^C7^%^D8+^%^C2^%^F7^%^B4^%^DC^%^B5^%^C8+^%^C7^%^D8^%^BF^%^DCIP+^%^BB^%^E7^%^BF^%^EB^%^C0^%^DA^%^C0^%^D4^%^B4^%^CF^%^B4^%^D9.&pageSpec=default20&pageSpec=default40&targetRow=201&lafjOrderBy=order+by+maeGiil+desc&termStartDt={}&termEndDt={}"#, search_date, search_date);
+    /* 
+    let query = format!("curl https://www.courtauction.go.kr/RetrieveRealEstMulDetailList.laf -d \"&srnID=PNO102001&termStartDt={}&termEndDt={}", search_date, search_date);
     let output = Command::new("cmd")
             .args(["/C", &query])
             .output()
@@ -49,6 +50,62 @@ fn main() {
     
     let response = hex2str(&output.stdout);
     println!("{}", response);
-     
+     */
     //println!("{:?}", output);
+
+    //srnId=법원 ID
+    //term=기간
+    //pageSpec, targetRow = page, start
+    let body = format!("srnID=PNO102001&termStartDt={}&termEndDt={}&pageSpec=default40&targetRow=1", search_date, search_date);
+    
+    let mut headers = header::HeaderMap::new();
+    headers.insert("Content-Type", "application/x-www-form-urlencoded".parse().unwrap());
+    headers.insert("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36".parse().unwrap());
+
+    let client = reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+    let req = client.post("https://www.courtauction.go.kr/RetrieveRealEstMulDetailList.laf")
+        .headers(headers.clone())
+        .body(body)
+        .send()?
+        .text()?;
+    //println!("{:?}", req);
+
+    //루프 돌려서 검색결과 없을때까지 데이터 긁는 처리
+
+    //상세 검색
+    let detail_body = format!("saNo=20190130005285&jiwonNm=%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8");
+    let detail_req = client.post("https://www.courtauction.go.kr/RetrieveRealEstCarHvyMachineMulDetailInfo.laf")
+        .headers(headers.clone())
+        .body(detail_body)
+        .send()?
+        .text()?;
+    println!("{:?}", detail_req);
+    Ok(())
+    /*
+    let mut data = "srnID=PNO102000".as_bytes();
+    
+
+    let mut easy = Easy::new();
+    let mut list = List::new();
+    list.append("Content-Type: application/x-www-form-urlencoded").unwrap();
+    easy.url("https://www.courtauction.go.kr/RetrieveRealEstMulDetailList.laf").unwrap();
+    easy.http_headers(list).unwrap();
+    easy.post(true).unwrap();
+    easy.post_field_size(data.len() as u64).unwrap();
+
+    let mut transfer = easy.transfer();
+    transfer.read_function(|buf| {
+        Ok(data.read(buf).unwrap_or(0))
+    }).unwrap();
+    transfer.write_function(|data| {
+        println!("{}", hex2str(data));
+        Ok(data.len())
+    }).unwrap();
+    transfer.perform().unwrap();
+     */
+    //let res = req.send()?.text()?;
+    //println!("{}", res);
 }
