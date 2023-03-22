@@ -1,9 +1,12 @@
 
-use std::{io::Read, process::Command};
-use encoding::{DecoderTrap, label::encoding_from_whatwg_label};
+use std::{io::Read, process::Command, fs::File};
+use encoding::{DecoderTrap, label::encoding_from_whatwg_label, EncoderTrap};
 use chrono::{Duration, Datelike};
 use postgres::{Client, NoTls};
 use reqwest::header;
+use scraper::{Html, Selector};
+use urlencoding::encode_binary;
+use serde_json::Value;
 
 fn hex2str(u8vec: &[u8]) -> &str {
     let euckr = encoding_from_whatwg_label("euc-kr").unwrap();
@@ -13,6 +16,12 @@ fn hex2str(u8vec: &[u8]) -> &str {
 
 fn string_to_static_str(s: String) -> &'static str {
     Box::leak(s.into_boxed_str())
+}
+
+fn str2euckr(text: &str) -> Vec<u8> {
+    let euckr = encoding_from_whatwg_label("euc-kr").unwrap();
+    let decode_string = euckr.encode(text, EncoderTrap::Replace).unwrap();
+    decode_string
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -32,7 +41,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let year: String = loc.year().to_string();
     let mut month: String = loc.month().to_string();
     let mut day: String = loc.day().to_string();
-    println!("{}", month.len());
     if month.len() == 1 {
         month = format!("0{}", month);
     }
@@ -56,7 +64,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //srnId=법원 ID
     //term=기간
     //pageSpec, targetRow = page, start
-    let body = format!("srnID=PNO102001&termStartDt={}&termEndDt={}&pageSpec=default40&targetRow=1", search_date, search_date);
+    let body = format!("srnID=PNO102001&termStartDt={}&termEndDt={}&pageSpec=default40&targetRow=41", search_date, search_date);
     
     let mut headers = header::HeaderMap::new();
     headers.insert("Content-Type", "application/x-www-form-urlencoded".parse().unwrap());
@@ -66,46 +74,65 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .unwrap();
-    let req = client.post("https://www.courtauction.go.kr/RetrieveRealEstMulDetailList.laf")
+    let res = client.post("https://www.courtauction.go.kr/RetrieveRealEstMulDetailList.laf")
         .headers(headers.clone())
         .body(body)
         .send()?
         .text()?;
-    //println!("{:?}", req);
 
-    //루프 돌려서 검색결과 없을때까지 데이터 긁는 처리
+    let mut targets: Vec<String> = Vec::new();
+    let mut target = "".to_owned();
+    let mut flag = false;
+    for res_line in res.split("\n") {
+        println!("{}", res_line);
+        if res_line.contains("Ltbl_list_lvl") {
+            flag = true;
+        }
 
-    //상세 검색
-    let detail_body = format!("saNo=20190130005285&jiwonNm=%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8");
-    let detail_req = client.post("https://www.courtauction.go.kr/RetrieveRealEstCarHvyMachineMulDetailInfo.laf")
+        if flag {
+            //println!("{}", res_line);
+            target.push_str("\n");
+            target.push_str(res_line);
+
+            if res_line.contains("</tr>") {
+                targets.push(target.clone());
+                target = "".to_owned();
+                flag = false;
+            }
+        }
+    }
+
+    //println!("{}", targets.len());
+
+    /*
+    let fragment = Html::parse_fragment(&targe);
+    let selector = Selector::parse("tr.Ltbl_list_lvl1").unwrap();
+
+    for element in fragment.select(&selector) {
+        println!("{:?}", element.value());
+    }
+    */
+    let court_name = "서울중앙지방법원";
+    let court_name_euc_kr_bin = str2euckr(court_name);
+    let encoded_court_name = encode_binary(&court_name_euc_kr_bin).to_string();
+    //let detail_body = format!("saNo=20190130005285&jiwonNm=%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8");
+    let detail_body = format!("saNo=20190130005285&jiwonNm={}", encoded_court_name);
+    let detail_res = client.post("https://www.courtauction.go.kr/RetrieveRealEstCarHvyMachineMulDetailInfo.laf")
         .headers(headers.clone())
         .body(detail_body)
         .send()?
         .text()?;
-    println!("{:?}", detail_req);
+    //println!("{:?}", detail_res);
+
+    let court_info = {
+        let path = "./court_info.json";
+        let json_text = std::fs::read_to_string(path).unwrap();
+
+        serde_json::from_str::<Value>(&json_text).unwrap()
+    };
+
+    //println!("{}", court_info["서울중앙지방법원"]["srn_id"]);
+    //println!("{}", encoded_court_name);
+
     Ok(())
-    /*
-    let mut data = "srnID=PNO102000".as_bytes();
-    
-
-    let mut easy = Easy::new();
-    let mut list = List::new();
-    list.append("Content-Type: application/x-www-form-urlencoded").unwrap();
-    easy.url("https://www.courtauction.go.kr/RetrieveRealEstMulDetailList.laf").unwrap();
-    easy.http_headers(list).unwrap();
-    easy.post(true).unwrap();
-    easy.post_field_size(data.len() as u64).unwrap();
-
-    let mut transfer = easy.transfer();
-    transfer.read_function(|buf| {
-        Ok(data.read(buf).unwrap_or(0))
-    }).unwrap();
-    transfer.write_function(|data| {
-        println!("{}", hex2str(data));
-        Ok(data.len())
-    }).unwrap();
-    transfer.perform().unwrap();
-     */
-    //let res = req.send()?.text()?;
-    //println!("{}", res);
 }
