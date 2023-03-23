@@ -1,0 +1,24 @@
+https://blog.logrocket.com/web-scraping-rust/
+위 페이지 참조 중
+
+
+
+fn make_selector(selector: &str) -> Selector {
+    Selector::parse(selector).unwrap()
+}
+
+let document = Html::parse_fragment(html);
+
+let tr_selector = make_selector("tr.Ltbl_list_lvl0");
+let td_selector = make_selector("td");
+
+for (tr_idx, tr) in document.select(&tr_selector).enumerate() {
+    if tr_idx == 0 {
+        for (td_idx, td) in tr.select(&td_selector).enumerate() {
+            if td_idx == 0 {
+                let data_line = td.inner_html();
+                println!("{}", data_line);
+            }
+        }
+    }
+}
