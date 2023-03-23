@@ -3,10 +3,17 @@ use std::{io::Read, process::Command, fs::File};
 use encoding::{DecoderTrap, label::encoding_from_whatwg_label, EncoderTrap};
 use chrono::{Duration, Datelike};
 use postgres::{Client, NoTls};
+use regex::Regex;
 use reqwest::header;
 use scraper::{Html, Selector};
 use urlencoding::encode_binary;
 use serde_json::Value;
+
+struct estate {
+    num_id: String,
+    kor_id: String,
+    court: String,
+}
 
 fn hex2str(u8vec: &[u8]) -> &str {
     let euckr = encoding_from_whatwg_label("euc-kr").unwrap();
@@ -22,6 +29,39 @@ fn str2euckr(text: &str) -> Vec<u8> {
     let euckr = encoding_from_whatwg_label("euc-kr").unwrap();
     let decode_string = euckr.encode(text, EncoderTrap::Replace).unwrap();
     decode_string
+}
+
+fn make_selector(selector: &str) -> Selector {
+    Selector::parse(selector).unwrap()
+}
+
+//function from loa(https://crates.io/crates/loa)
+fn get_attribute(html_str: String, attr: impl ToString) -> Option<String> {
+    let attr = attr.to_string();
+    let new_self_vec = html_str
+        .split("><")
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let new_self = new_self_vec.get(0).unwrap_or(&html_str).replace("\"\"", "");
+    let attr_vec = new_self
+        .split("\"")
+        .filter(|s| !s.is_empty())
+        .map(|s| s.trim().to_string())
+        .collect::<Vec<_>>();
+    let mut attr_index: usize = 0;
+    for i in 0..attr_vec.len() {
+        let s = attr_vec.get(i).expect("get error");
+        if s.contains(&attr) {
+            attr_index += 1;
+            break;
+        }
+        attr_index = attr_index + 1;
+    }
+    match attr_vec.get(attr_index) {
+        Some(e) => Some(e.to_string()),
+        None => None,
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -49,26 +89,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let search_date = format!("{}.{}.{}", year, month, day);
-    /* 
-    let query = format!("curl https://www.courtauction.go.kr/RetrieveRealEstMulDetailList.laf -d \"&srnID=PNO102001&termStartDt={}&termEndDt={}", search_date, search_date);
-    let output = Command::new("cmd")
-            .args(["/C", &query])
-            .output()
-            .expect("failed to execute process");
-    
-    let response = hex2str(&output.stdout);
-    println!("{}", response);
-     */
-    //println!("{:?}", output);
 
-    //srnId=법원 ID
-    //term=기간
-    //pageSpec, targetRow = page, start
-    let body = format!("srnID=PNO102001&termStartDt={}&termEndDt={}&pageSpec=default40&targetRow=41", search_date, search_date);
+    let body = format!("srnID=PNO102001&termStartDt={}&termEndDt={}&pageSpec=default40&targetRow=1", search_date, search_date);
     
     let mut headers = header::HeaderMap::new();
     headers.insert("Content-Type", "application/x-www-form-urlencoded".parse().unwrap());
     headers.insert("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36".parse().unwrap());
+    //headers.insert(header::COOKIE, "WMONID=mf-Qh8yqvqf; daepyoSidoCd=; daepyoSiguCd=; rd1Cd=; rd2Cd=; realVowel=35207_45207; page=default40; mvmPlaceSidoCd=; mvmPlaceSiguCd=; roadPlaceSidoCd=; roadPlaceSiguCd=; vowelSel=35207_45207; toMul=%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8%2C20190130005926%2C1%2C20230321%2CB%5E%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8%2C20210130105713%2C1%2C20230321%2CB%5E%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8%2C20210130004964%2C2%2C20230328%2CB%5E%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8%2C20190130005285%2C1%2C20230328%2CB%5E; realJiwonNm=%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8; JSESSIONID=K4mCRAEnfvyI9pLMHAjTKaYAUksGIJwa0FWpJZMEeifVqwryxhBptdgc3WNhfrKa.amV1c19kb21haW4vYWlzMg==".parse().unwrap());
 
     let client = reqwest::blocking::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -80,38 +107,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .send()?
         .text()?;
 
-    let mut targets: Vec<String> = Vec::new();
-    let mut target = "".to_owned();
-    let mut flag = false;
-    for res_line in res.split("\n") {
-        println!("{}", res_line);
-        if res_line.contains("Ltbl_list_lvl") {
-            flag = true;
-        }
+    let document = Html::parse_fragment(&res);
 
-        if flag {
-            //println!("{}", res_line);
-            target.push_str("\n");
-            target.push_str(res_line);
-
-            if res_line.contains("</tr>") {
-                targets.push(target.clone());
-                target = "".to_owned();
-                flag = false;
+    let tr_selector = make_selector("tr.Ltbl_list_lvl0");
+    let td_selector = make_selector("td");
+    
+    for (tr_idx, tr) in document.select(&tr_selector).enumerate() {
+        if tr_idx == 0 {
+            for (td_idx, td) in tr.select(&td_selector).enumerate() {
+                if td_idx == 0 {
+                    let datas = get_attribute(td.inner_html(), "value").unwrap();
+                    let splitted: Vec<&str> = datas.split(",").collect();
+                    println!("{} | {}", splitted[0], splitted[1]);
+                }
+                if td_idx == 1 {
+                    let td_inner = td.inner_html();
+                    for cap in Regex::new(r"\d{4}타경\d{4}").unwrap().find_iter(&td.inner_html()) {
+                        println!("{}", &td_inner[cap.start()..cap.end()]);
+                    }
+                }
             }
         }
     }
-
-    //println!("{}", targets.len());
-
-    /*
-    let fragment = Html::parse_fragment(&targe);
-    let selector = Selector::parse("tr.Ltbl_list_lvl1").unwrap();
-
-    for element in fragment.select(&selector) {
-        println!("{:?}", element.value());
-    }
-    */
+    
     let court_name = "서울중앙지방법원";
     let court_name_euc_kr_bin = str2euckr(court_name);
     let encoded_court_name = encode_binary(&court_name_euc_kr_bin).to_string();
