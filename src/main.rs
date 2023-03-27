@@ -5,7 +5,7 @@ use chrono::{Duration, Datelike};
 use postgres::{Client, NoTls};
 use regex::Regex;
 use reqwest::header;
-use scraper::{Html, Selector};
+use scraper::{Html, Selector, ElementRef};
 use urlencoding::encode_binary;
 use serde_json::Value;
 
@@ -64,6 +64,49 @@ fn get_attribute(html_str: String, attr: impl ToString) -> Option<String> {
     }
 }
 
+fn parse_estate(tr: ElementRef) {
+    let td_selector = make_selector("td");
+    for (td_idx, td) in tr.select(&td_selector).enumerate() {
+        if td_idx == 0 {
+            let datas = get_attribute(td.inner_html(), "value").unwrap();
+            let splitted: Vec<&str> = datas.split(",").collect();
+            println!("{} | {}", splitted[0], splitted[1]);
+        }
+        if td_idx == 1 {
+            let td_inner = td.inner_html();
+            let splitted: Vec<&str> = td_inner.split("\n").collect();
+            println!("{}", splitted[2].trim().replace("<br>", ""));
+        }
+        if td_idx == 2 {
+            let td_inner = td.inner_html();
+            let splitted: Vec<&str> = td_inner.split("\n").collect();
+            println!("{}", splitted[2].trim());
+        }
+        if td_idx == 3 {
+            let td_inner = td.inner_html();
+            let splitted: Vec<&str> = td_inner.split("\n").collect();
+            println!("{} | {}", splitted[6].trim().replace("</a>", ""), splitted[14].trim());
+        }
+        if td_idx == 5 {
+            let td_inner = td.inner_html();
+            let splitted: Vec<&str> = td_inner.split("\n").collect();
+            println!("{} | {}", splitted[2].trim().replace(",", ""), splitted[6].trim().replace(",", ""));
+        }
+        if td_idx == 6 {
+            let td_inner = td.inner_html();
+            let splitted: Vec<&str> = td_inner.split("\n").collect();
+            //println!("{}", splitted[4].trim());
+            let datas_string = get_attribute(splitted[4].trim().to_string(), "onclick").unwrap().replace("showJpDeptInofTitle(", "").replace(");return false;", "");
+            let datas_splitted: Vec<&str> = datas_string.split(",").collect();
+            println!("{}", datas_splitted[0].replace("'", "").trim());
+            println!("{}", datas_splitted[1].replace("'", "").trim());
+            println!("{}", datas_splitted[2].replace("'", "").trim());
+            //println!("{}", datas.replace("showJpDeptInofTitle(", "").replace(");return false;", ""));
+            println!("{}", splitted[11].trim());
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut client = Client::connect("host=localhost user=postgres", NoTls).unwrap();
@@ -110,24 +153,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let document = Html::parse_fragment(&res);
 
     let tr_selector = make_selector("tr.Ltbl_list_lvl0");
-    let td_selector = make_selector("td");
     
     for (tr_idx, tr) in document.select(&tr_selector).enumerate() {
-        if tr_idx == 0 {
-            for (td_idx, td) in tr.select(&td_selector).enumerate() {
-                if td_idx == 0 {
-                    let datas = get_attribute(td.inner_html(), "value").unwrap();
-                    let splitted: Vec<&str> = datas.split(",").collect();
-                    println!("{} | {}", splitted[0], splitted[1]);
-                }
-                if td_idx == 1 {
-                    let td_inner = td.inner_html();
-                    for cap in Regex::new(r"\d{4}타경\d{4}").unwrap().find_iter(&td.inner_html()) {
-                        println!("{}", &td_inner[cap.start()..cap.end()]);
-                    }
-                }
-            }
-        }
+        parse_estate(tr);
     }
     
     let court_name = "서울중앙지방법원";
