@@ -13,6 +13,14 @@ struct estate {
     num_id: String,
     kor_id: String,
     court: String,
+    location: String,
+    spec: String,
+    description: String,
+    appraised_price: u64,
+    sale_price: u64,
+    concerned_department: String,
+    target_date: String,
+    process: String
 }
 
 fn hex2str(u8vec: &[u8]) -> &str {
