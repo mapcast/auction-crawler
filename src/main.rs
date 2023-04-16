@@ -13,6 +13,14 @@ struct estate {
     num_id: String,
     kor_id: String,
     court: String,
+    category: String,
+    address: String,
+    original_price: usize,
+    starting_price: usize,
+    phone_number: String,
+    court_number: String,
+    failed_count: String,
+
 }
 
 fn hex2str(u8vec: &[u8]) -> &str {
@@ -120,7 +128,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     //let query = r#"curl https://www.courtauction.go.kr/RetrieveRealEstMulDetailList.laf -d srnID=PNO102000&jiwonNm=%BE%C8%BB%EA%C1%F6%BF%F8&bubwLocGubun=1&jibhgwanOffMgakPlcGubun=&mvmPlaceSidoCd=&mvmPlaceSiguCd=&roadPlaceSidoCd=&roadPlaceSiguCd=&daepyoSidoCd=&daepyoSiguCd=&daepyoDongCd=&rd1Cd=&rd2Cd=&rd3Rd4Cd=&roadCode=&notifyLoc=1&notifyRealRoad=1&notifyNewLoc=1&mvRealGbncd=1&jiwonNm1=%BE%C8%BB%EA%C1%F6%BF%F8&jiwonNm2=%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8&mDaepyoSidoCd=&mvDaepyoSidoCd=&mDaepyoSiguCd=&mvDaepyoSiguCd=&realVowel=00000_55203&vowelSel=00000_55203&mDaepyoDongCd=&mvmPlaceDongCd=&_NAVI_CMD=&_NAVI_SRNID=&_SRCH_SRNID=PNO102000&_CUR_CMD=RetrieveMainInfo.laf&_CUR_SRNID=PNO102000&_NEXT_CMD=RetrieveRealEstMulDetailList.laf&_NEXT_SRNID=PNO102002&_PRE_SRNID=PNO102001&_LOGOUT_CHK=&_FORM_YN=Y"#;
     
-    let loc = chrono::Local::now() + Duration::days(14);
+    let loc = chrono::Local::now() + Duration::days(11);
     let year: String = loc.year().to_string();
     let mut month: String = loc.month().to_string();
     let mut day: String = loc.day().to_string();
@@ -133,31 +141,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let search_date = format!("{}.{}.{}", year, month, day);
 
-    let body = format!("srnID=PNO102001&termStartDt={}&termEndDt={}&pageSpec=default40&targetRow=1", search_date, search_date);
-    
+    let mut target_row: i32 = 1;
+
+    let client: reqwest::blocking::Client = reqwest::blocking::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
     let mut headers = header::HeaderMap::new();
     headers.insert("Content-Type", "application/x-www-form-urlencoded".parse().unwrap());
     headers.insert("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36".parse().unwrap());
-    //headers.insert(header::COOKIE, "WMONID=mf-Qh8yqvqf; daepyoSidoCd=; daepyoSiguCd=; rd1Cd=; rd2Cd=; realVowel=35207_45207; page=default40; mvmPlaceSidoCd=; mvmPlaceSiguCd=; roadPlaceSidoCd=; roadPlaceSiguCd=; vowelSel=35207_45207; toMul=%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8%2C20190130005926%2C1%2C20230321%2CB%5E%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8%2C20210130105713%2C1%2C20230321%2CB%5E%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8%2C20210130004964%2C2%2C20230328%2CB%5E%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8%2C20190130005285%2C1%2C20230328%2CB%5E; realJiwonNm=%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8; JSESSIONID=K4mCRAEnfvyI9pLMHAjTKaYAUksGIJwa0FWpJZMEeifVqwryxhBptdgc3WNhfrKa.amV1c19kb21haW4vYWlzMg==".parse().unwrap());
 
-    let client = reqwest::blocking::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .unwrap();
-    let res = client.post("https://www.courtauction.go.kr/RetrieveRealEstMulDetailList.laf")
-        .headers(headers.clone())
-        .body(body)
-        .send()?
-        .text()?;
+    loop {
+        let body = format!("srnID=PNO102001&termStartDt={}&termEndDt={}&pageSpec=default40&targetRow={}", search_date, search_date, target_row);
+        println!("{}", body);
+        //headers.insert(header::COOKIE, "WMONID=mf-Qh8yqvqf; daepyoSidoCd=; daepyoSiguCd=; rd1Cd=; rd2Cd=; realVowel=35207_45207; page=default40; mvmPlaceSidoCd=; mvmPlaceSiguCd=; roadPlaceSidoCd=; roadPlaceSiguCd=; vowelSel=35207_45207; toMul=%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8%2C20190130005926%2C1%2C20230321%2CB%5E%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8%2C20210130105713%2C1%2C20230321%2CB%5E%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8%2C20210130004964%2C2%2C20230328%2CB%5E%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8%2C20190130005285%2C1%2C20230328%2CB%5E; realJiwonNm=%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8; JSESSIONID=K4mCRAEnfvyI9pLMHAjTKaYAUksGIJwa0FWpJZMEeifVqwryxhBptdgc3WNhfrKa.amV1c19kb21haW4vYWlzMg==".parse().unwrap());
+        
+        let res = client.post("https://www.courtauction.go.kr/RetrieveRealEstMulDetailList.laf")
+            .headers(headers.clone())
+            .body(body)
+            .send()?
+            .text()?;
 
-    let document = Html::parse_fragment(&res);
-
-    let tr_selector = make_selector("tr.Ltbl_list_lvl0");
+        if res.contains("검색결과가 없습니다.") {
+            break;
+        }
     
-    for (tr_idx, tr) in document.select(&tr_selector).enumerate() {
-        parse_estate(tr);
+        let document = Html::parse_fragment(&res);
+    
+        let tr_selector = make_selector("tr.Ltbl_list_lvl0");
+        
+        for (tr_idx, tr) in document.select(&tr_selector).enumerate() {
+            parse_estate(tr);
+        }
+
+        target_row = target_row + 1;
+
+        let delay = std::time::Duration::from_secs(3);
+        println!("건전한 스크래핑을 위해 텀을 둡니다. 3초 후 재검색합니다.");
+        std::thread::sleep(delay);
+        
     }
+
     
+    /*
     let court_name = "서울중앙지방법원";
     let court_name_euc_kr_bin = str2euckr(court_name);
     let encoded_court_name = encode_binary(&court_name_euc_kr_bin).to_string();
@@ -179,6 +205,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     //println!("{}", court_info["서울중앙지방법원"]["srn_id"]);
     //println!("{}", encoded_court_name);
-
+     */
     Ok(())
 }
