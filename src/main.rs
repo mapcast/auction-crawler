@@ -71,23 +71,41 @@ fn get_attribute(html_str: String, attr: impl ToString) -> Option<String> {
     }
 }
 
-fn parse_estate(tr: ElementRef) {
+fn parse_estate(tr: ElementRef, client: postgres::Client) {
+    
+    let mut insert_estate = Estate {
+        num_id: String::from(""),
+        kor_id: String::from(""),
+        court: String::from(""),
+        category: String::from(""),
+        address: String::from(""),
+        original_price: 0,
+        starting_price: 0,
+        phone_number: String::from(""),
+        court_number: String::from(""),
+        failed_count: String::from(""),
+    }
+    
     let td_selector = make_selector("td");
     for (td_idx, td) in tr.select(&td_selector).enumerate() {
         if td_idx == 0 {
             let datas = get_attribute(td.inner_html(), "value").unwrap();
             let splitted: Vec<&str> = datas.split(",").collect();
             println!("{} | {}", splitted[0], splitted[1]);
+            insert_estate.num_id = splitted[0];
+            insert_estate.kor_id = splitted[1];
         }
         if td_idx == 1 {
             let td_inner = td.inner_html();
             let splitted: Vec<&str> = td_inner.split("\n").collect();
             println!("{}", splitted[2].trim().replace("<br>", ""));
+            insert_estate.court = splitted[1].trim().replace("<br>", "");
         }
         if td_idx == 2 {
             let td_inner = td.inner_html();
             let splitted: Vec<&str> = td_inner.split("\n").collect();
             println!("{}", splitted[2].trim());
+            insert_estate.category = splitted[2].trim();
         }
         if td_idx == 3 {
             let td_inner = td.inner_html();
@@ -116,12 +134,11 @@ fn parse_estate(tr: ElementRef) {
 
 fn insert_estate(estate: Estate, client: postgres::Client) {
     let rows_updated = client.execute(
-        r#"INSERT INTO estate(num_id, kor) values()"#,
+        r#"INSERT INTO estate(num_id, kor_id, court, category, address, original_price, starting_price, phone_number, court_number, failed_count) 
+        values($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
         &[&estate.num_id, &estate.kor_id, &estate.court, &estate.category, &estate.address, &estate.original_price,
              &estate.starting_price, &estate.phone_number, &estate.court_number, &estate.failed_count],
     )?;
-
-    println!("{} rows updated", rows_updated);
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -180,7 +197,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let tr_selector = make_selector("tr.Ltbl_list_lvl0");
         
         for (tr_idx, tr) in document.select(&tr_selector).enumerate() {
-            parse_estate(tr);
+            parse_estate(tr, postgres_client);
         }
 
         target_row = target_row + 1;
