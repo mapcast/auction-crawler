@@ -2,14 +2,13 @@
 use std::{io::Read, process::Command, fs::File};
 use encoding::{DecoderTrap, label::encoding_from_whatwg_label, EncoderTrap};
 use chrono::{Duration, Datelike};
-use postgres::{Client, NoTls};
 use regex::Regex;
 use reqwest::header;
 use scraper::{Html, Selector, ElementRef};
 use urlencoding::encode_binary;
 use serde_json::Value;
 
-struct estate {
+struct Estate {
     num_id: String,
     kor_id: String,
     court: String,
@@ -115,17 +114,27 @@ fn parse_estate(tr: ElementRef) {
     }
 }
 
+fn insert_estate(estate: Estate, client: postgres::Client) {
+    let rows_updated = client.execute(
+        r#"INSERT INTO estate(num_id, kor) values()"#,
+        &[&estate.num_id, &estate.kor_id, &estate.court, &estate.category, &estate.address, &estate.original_price,
+             &estate.starting_price, &estate.phone_number, &estate.court_number, &estate.failed_count],
+    )?;
+
+    println!("{} rows updated", rows_updated);
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 
-    let mut client = Client::connect("host=localhost user=postgres", NoTls).unwrap();
-     
-    for row in client.query("SELECT id, name FROM TEST_TABLE", &[]).unwrap() {
+    let mut postgres_client = postgres::Client::connect("host=localhost user=postgres", postgres::NoTls).unwrap();
+    /*
+    for row in postgres_client.query("SELECT id, name FROM TEST_TABLE", &[]).unwrap() {
         let id: i32 = row.get(0);
         let name: &str = row.get(1);
     
         println!("found person: {} {}", id, name);
     }
-
+    */
     //let query = r#"curl https://www.courtauction.go.kr/RetrieveRealEstMulDetailList.laf -d srnID=PNO102000&jiwonNm=%BE%C8%BB%EA%C1%F6%BF%F8&bubwLocGubun=1&jibhgwanOffMgakPlcGubun=&mvmPlaceSidoCd=&mvmPlaceSiguCd=&roadPlaceSidoCd=&roadPlaceSiguCd=&daepyoSidoCd=&daepyoSiguCd=&daepyoDongCd=&rd1Cd=&rd2Cd=&rd3Rd4Cd=&roadCode=&notifyLoc=1&notifyRealRoad=1&notifyNewLoc=1&mvRealGbncd=1&jiwonNm1=%BE%C8%BB%EA%C1%F6%BF%F8&jiwonNm2=%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8&mDaepyoSidoCd=&mvDaepyoSidoCd=&mDaepyoSiguCd=&mvDaepyoSiguCd=&realVowel=00000_55203&vowelSel=00000_55203&mDaepyoDongCd=&mvmPlaceDongCd=&_NAVI_CMD=&_NAVI_SRNID=&_SRCH_SRNID=PNO102000&_CUR_CMD=RetrieveMainInfo.laf&_CUR_SRNID=PNO102000&_NEXT_CMD=RetrieveRealEstMulDetailList.laf&_NEXT_SRNID=PNO102002&_PRE_SRNID=PNO102001&_LOGOUT_CHK=&_FORM_YN=Y"#;
     
     let loc = chrono::Local::now() + Duration::days(11);
