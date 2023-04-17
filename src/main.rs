@@ -1,12 +1,9 @@
 
-use std::{io::Read, process::Command, fs::File};
 use encoding::{DecoderTrap, label::encoding_from_whatwg_label, EncoderTrap};
 use chrono::{Duration, Datelike};
-use regex::Regex;
 use reqwest::header;
 use scraper::{Html, Selector, ElementRef};
-use urlencoding::encode_binary;
-use serde_json::Value;
+
 
 struct Estate {
     num_id: String,
@@ -14,8 +11,10 @@ struct Estate {
     court: String,
     category: String,
     address: String,
-    original_price: usize,
-    starting_price: usize,
+    specs: String,
+    estimated_price: String,
+    starting_price: String,
+    schedule: String,
     phone_number: String,
     court_number: String,
     failed_count: String,
@@ -71,20 +70,22 @@ fn get_attribute(html_str: String, attr: impl ToString) -> Option<String> {
     }
 }
 
-fn parse_estate(tr: ElementRef, client: postgres::Client) {
+fn parse_estate(tr: ElementRef) -> Estate {
     
-    let mut insert_estate = Estate {
+    let mut estate = Estate {
         num_id: String::from(""),
         kor_id: String::from(""),
         court: String::from(""),
         category: String::from(""),
         address: String::from(""),
-        original_price: 0,
-        starting_price: 0,
+        specs: String::from(""),
+        estimated_price: String::from(""),
+        starting_price: String::from(""),
         phone_number: String::from(""),
+        schedule: String::from(""),
         court_number: String::from(""),
         failed_count: String::from(""),
-    }
+    };
     
     let td_selector = make_selector("td");
     for (td_idx, td) in tr.select(&td_selector).enumerate() {
@@ -92,30 +93,34 @@ fn parse_estate(tr: ElementRef, client: postgres::Client) {
             let datas = get_attribute(td.inner_html(), "value").unwrap();
             let splitted: Vec<&str> = datas.split(",").collect();
             println!("{} | {}", splitted[0], splitted[1]);
-            insert_estate.num_id = splitted[0];
-            insert_estate.kor_id = splitted[1];
+            estate.court = splitted[0].to_owned();
+            estate.num_id = splitted[1].to_owned();
         }
         if td_idx == 1 {
             let td_inner = td.inner_html();
             let splitted: Vec<&str> = td_inner.split("\n").collect();
             println!("{}", splitted[2].trim().replace("<br>", ""));
-            insert_estate.court = splitted[1].trim().replace("<br>", "");
+            estate.kor_id = splitted[2].trim().replace("<br>", "");
         }
         if td_idx == 2 {
             let td_inner = td.inner_html();
             let splitted: Vec<&str> = td_inner.split("\n").collect();
             println!("{}", splitted[2].trim());
-            insert_estate.category = splitted[2].trim();
+            estate.category = splitted[2].trim().to_owned();
         }
         if td_idx == 3 {
             let td_inner = td.inner_html();
             let splitted: Vec<&str> = td_inner.split("\n").collect();
             println!("{} | {}", splitted[6].trim().replace("</a>", ""), splitted[14].trim());
+            estate.address = splitted[6].trim().replace("</a>", "").to_owned();
+            estate.specs = splitted[14].trim().to_owned();
         }
         if td_idx == 5 {
             let td_inner = td.inner_html();
             let splitted: Vec<&str> = td_inner.split("\n").collect();
             println!("{} | {}", splitted[2].trim().replace(",", ""), splitted[6].trim().replace(",", ""));
+            estate.estimated_price = splitted[2].trim().replace(",", "").to_owned();
+            estate.starting_price = splitted[6].trim().replace(",", "").to_owned();
         }
         if td_idx == 6 {
             let td_inner = td.inner_html();
@@ -128,17 +133,14 @@ fn parse_estate(tr: ElementRef, client: postgres::Client) {
             println!("{}", datas_splitted[2].replace("'", "").trim());
             //println!("{}", datas.replace("showJpDeptInofTitle(", "").replace(");return false;", ""));
             println!("{}", splitted[11].trim());
+
+            estate.phone_number = datas_splitted[0].replace("'", "").replace("(월요일은 경매기일로 업무처리가 어렵습니다)", "").trim().to_owned();
+            estate.schedule = datas_splitted[1].replace("'", "").trim().to_owned();
+            estate.court_number = datas_splitted[2].replace("'", "").trim().to_owned();
+            estate.failed_count = splitted[11].trim().to_owned();
         }
     }
-}
-
-fn insert_estate(estate: Estate, client: postgres::Client) {
-    let rows_updated = client.execute(
-        r#"INSERT INTO estate(num_id, kor_id, court, category, address, original_price, starting_price, phone_number, court_number, failed_count) 
-        values($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
-        &[&estate.num_id, &estate.kor_id, &estate.court, &estate.category, &estate.address, &estate.original_price,
-             &estate.starting_price, &estate.phone_number, &estate.court_number, &estate.failed_count],
-    )?;
+    estate
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -177,6 +179,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     headers.insert("Content-Type", "application/x-www-form-urlencoded".parse().unwrap());
     headers.insert("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36".parse().unwrap());
 
+    let mut estates: Vec<Estate> = Vec::new();
+
     loop {
         let body = format!("srnID=PNO102001&termStartDt={}&termEndDt={}&pageSpec=default40&targetRow={}", search_date, search_date, target_row);
         println!("{}", body);
@@ -197,18 +201,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let tr_selector = make_selector("tr.Ltbl_list_lvl0");
         
         for (tr_idx, tr) in document.select(&tr_selector).enumerate() {
-            parse_estate(tr, postgres_client);
+            estates.push(parse_estate(tr));
         }
 
-        target_row = target_row + 1;
+        //target_row = target_row + 1;
 
         let delay = std::time::Duration::from_secs(3);
         println!("건전한 스크래핑을 위해 텀을 둡니다. 3초 후 재검색합니다.");
         std::thread::sleep(delay);
-        
+        break;
     }
 
-    
+    for est in estates {
+        println!("{}", est.kor_id);
+    }
+    /* 
+    let rows_updated = postgres_client.execute(
+        r#"INSERT INTO estate(num_id, kor_id, court, category, address, original_price, starting_price, phone_number, court_number, failed_count) 
+        values('$1', '$2', '$3', '$4', '$5', $6, $7, '$8', '$9', '$10')"#,
+        &[&estate.num_id, &estate.kor_id, &estate.court, &estate.category, &estate.address, &estate.original_price.to_string(),
+             &estate.starting_price.to_string(), &estate.phone_number, &estate.court_number, &estate.failed_count],
+    ).unwrap();
+    */
     /*
     let court_name = "서울중앙지방법원";
     let court_name_euc_kr_bin = str2euckr(court_name);
