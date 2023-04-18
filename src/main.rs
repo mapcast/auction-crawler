@@ -92,33 +92,28 @@ fn parse_estate(tr: ElementRef) -> Estate {
         if td_idx == 0 {
             let datas = get_attribute(td.inner_html(), "value").unwrap();
             let splitted: Vec<&str> = datas.split(",").collect();
-            println!("{} | {}", splitted[0], splitted[1]);
             estate.court = splitted[0].to_owned();
             estate.num_id = splitted[1].to_owned();
         }
         if td_idx == 1 {
             let td_inner = td.inner_html();
             let splitted: Vec<&str> = td_inner.split("\n").collect();
-            println!("{}", splitted[2].trim().replace("<br>", ""));
             estate.kor_id = splitted[2].trim().replace("<br>", "");
         }
         if td_idx == 2 {
             let td_inner = td.inner_html();
             let splitted: Vec<&str> = td_inner.split("\n").collect();
-            println!("{}", splitted[2].trim());
             estate.category = splitted[2].trim().to_owned();
         }
         if td_idx == 3 {
             let td_inner = td.inner_html();
             let splitted: Vec<&str> = td_inner.split("\n").collect();
-            println!("{} | {}", splitted[6].trim().replace("</a>", ""), splitted[14].trim());
             estate.address = splitted[6].trim().replace("</a>", "").to_owned();
             estate.specs = splitted[14].trim().to_owned();
         }
         if td_idx == 5 {
             let td_inner = td.inner_html();
             let splitted: Vec<&str> = td_inner.split("\n").collect();
-            println!("{} | {}", splitted[2].trim().replace(",", ""), splitted[6].trim().replace(",", ""));
             estate.estimated_price = splitted[2].trim().replace(",", "").to_owned();
             estate.starting_price = splitted[6].trim().replace(",", "").to_owned();
         }
@@ -128,13 +123,14 @@ fn parse_estate(tr: ElementRef) -> Estate {
             //println!("{}", splitted[4].trim());
             let datas_string = get_attribute(splitted[4].trim().to_string(), "onclick").unwrap().replace("showJpDeptInofTitle(", "").replace(");return false;", "");
             let datas_splitted: Vec<&str> = datas_string.split(",").collect();
-            println!("{}", datas_splitted[0].replace("'", "").trim());
-            println!("{}", datas_splitted[1].replace("'", "").trim());
-            println!("{}", datas_splitted[2].replace("'", "").trim());
-            //println!("{}", datas.replace("showJpDeptInofTitle(", "").replace(");return false;", ""));
-            println!("{}", splitted[11].trim());
 
-            estate.phone_number = datas_splitted[0].replace("'", "").replace("(월요일은 경매기일로 업무처리가 어렵습니다)", "").trim().to_owned();
+            let mut phone_number = datas_splitted[0].replace("'", "").trim().to_owned();
+            if phone_number.contains("(") {
+                let par_index = phone_number.find("(").unwrap();
+                phone_number = phone_number[..par_index].to_owned();
+            }
+            estate.phone_number = phone_number;
+
             estate.schedule = datas_splitted[1].replace("'", "").trim().to_owned();
             estate.court_number = datas_splitted[2].replace("'", "").trim().to_owned();
             estate.failed_count = splitted[11].trim().to_owned();
@@ -146,6 +142,22 @@ fn parse_estate(tr: ElementRef) -> Estate {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut postgres_client = postgres::Client::connect("host=localhost user=postgres", postgres::NoTls).unwrap();
+
+    postgres_client.query(r#"CREATE TABLE IF NOT EXISTS estates (
+        num_id VARCHAR(50) PRIMARY KEY,
+        kor_id VARCHAR(50),
+        court VARCHAR(30),
+        category VARCHAR(30),
+        address VARCHAR(250),
+        specs TEXT,
+        estimated_price bigint,
+        starting_price bigint,
+        phone_number VARCHAR(20),
+        schedule VARCHAR(20),
+        court_number VARCHAR(50),
+        failed_count VARCHAR(20)
+    );"#, &[])?;
+
     /*
     for row in postgres_client.query("SELECT id, name FROM TEST_TABLE", &[]).unwrap() {
         let id: i32 = row.get(0);
@@ -156,7 +168,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     */
     //let query = r#"curl https://www.courtauction.go.kr/RetrieveRealEstMulDetailList.laf -d srnID=PNO102000&jiwonNm=%BE%C8%BB%EA%C1%F6%BF%F8&bubwLocGubun=1&jibhgwanOffMgakPlcGubun=&mvmPlaceSidoCd=&mvmPlaceSiguCd=&roadPlaceSidoCd=&roadPlaceSiguCd=&daepyoSidoCd=&daepyoSiguCd=&daepyoDongCd=&rd1Cd=&rd2Cd=&rd3Rd4Cd=&roadCode=&notifyLoc=1&notifyRealRoad=1&notifyNewLoc=1&mvRealGbncd=1&jiwonNm1=%BE%C8%BB%EA%C1%F6%BF%F8&jiwonNm2=%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8&mDaepyoSidoCd=&mvDaepyoSidoCd=&mDaepyoSiguCd=&mvDaepyoSiguCd=&realVowel=00000_55203&vowelSel=00000_55203&mDaepyoDongCd=&mvmPlaceDongCd=&_NAVI_CMD=&_NAVI_SRNID=&_SRCH_SRNID=PNO102000&_CUR_CMD=RetrieveMainInfo.laf&_CUR_SRNID=PNO102000&_NEXT_CMD=RetrieveRealEstMulDetailList.laf&_NEXT_SRNID=PNO102002&_PRE_SRNID=PNO102001&_LOGOUT_CHK=&_FORM_YN=Y"#;
     
-    let loc = chrono::Local::now() + Duration::days(11);
+    let loc = chrono::Local::now() + Duration::days(14);
     let year: String = loc.year().to_string();
     let mut month: String = loc.month().to_string();
     let mut day: String = loc.day().to_string();
@@ -213,7 +225,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     for est in estates {
-        println!("{}", est.kor_id);
+        println!("{} | {} | {} | {} | {} | {} | {} | {} | {} | {}", 
+            est.num_id,
+            est.kor_id,
+            est.court,
+            est.category,
+            est.address,
+            est.estimated_price,
+            est.starting_price,
+            est.phone_number,
+            est.court_number,
+            est.failed_count
+        );
+        /* 
+        postgres_client.execute(
+            r#"INSERT INTO estate(num_id, kor_id, court, category, address, original_price, starting_price, phone_number, court_number, failed_count) 
+            values('$1', '$2', '$3', '$4', '$5', $6, $7, '$8', '$9', '$10')"#,
+            &[&est.num_id, &est.kor_id, &est.court, &est.category, &est.address, &est.estimated_price,
+                 &est.starting_price, &est.phone_number, &est.court_number, &est.failed_count],
+        )?;*/
     }
     /* 
     let rows_updated = postgres_client.execute(
