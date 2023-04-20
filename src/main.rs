@@ -144,8 +144,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut postgres_client = postgres::Client::connect("host=localhost user=postgres", postgres::NoTls).unwrap();
 
     postgres_client.query(r#"CREATE TABLE IF NOT EXISTS estates (
-        num_id VARCHAR(50) PRIMARY KEY,
-        kor_id VARCHAR(50),
+        num_id VARCHAR(50),
+        kor_id VARCHAR(50) PRIMARY KEY,
         court VARCHAR(30),
         category VARCHAR(30),
         address VARCHAR(250),
@@ -237,6 +237,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             est.court_number,
             est.failed_count
         );
+        
+        let rows = client.query("SELECT * FROM estates  WHERE kor_id = $1", &[&est.kor_id])?;
+        if rows.size() > 0 {
+            /* 
+            postgres_client.execute(
+                r#"UPDATE estates
+                    SET num_id = '$1',
+                    court = '$3',
+                    category = '$4',
+                    address = '$5',
+                    original_price = '$6',
+                    starting_price = '$7',
+                    phone_number = '$8',
+                    court_number = '$9',
+                    failed_count = '$10'
+                    WHERE kor_id = '$2'
+                "#,
+                &[&est.num_id, &est.kor_id, &est.court, &est.category, &est.address, &est.estimated_price,
+                     &est.starting_price, &est.phone_number, &est.court_number, &est.failed_count],
+            )?;*/
+            println!("estate exists");
+        } else {
+            /* 
+            postgres_client.execute(
+                r#"INSERT INTO estates(num_id, kor_id, court, category, address, original_price, starting_price, phone_number, court_number, failed_count) 
+                values('$1', '$2', '$3', '$4', '$5', $6, $7, '$8', '$9', '$10')"#,
+                &[&est.num_id, &est.kor_id, &est.court, &est.category, &est.address, &est.estimated_price,
+                     &est.starting_price, &est.phone_number, &est.court_number, &est.failed_count],
+            )?;*/
+            println!("estate not exists");
+        }
         /* 
         postgres_client.execute(
             r#"INSERT INTO estate(num_id, kor_id, court, category, address, original_price, starting_price, phone_number, court_number, failed_count) 
