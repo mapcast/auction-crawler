@@ -1,9 +1,8 @@
 
 use encoding::{DecoderTrap, label::encoding_from_whatwg_label, EncoderTrap};
-use chrono::{Duration, Datelike};
+use chrono::{Duration, Datelike, Utc};
 use reqwest::header;
 use scraper::{Html, Selector, ElementRef};
-
 
 struct Estate {
     num_id: String,
@@ -12,8 +11,8 @@ struct Estate {
     category: String,
     address: String,
     specs: String,
-    estimated_price: String,
-    starting_price: String,
+    estimated_price: i64,
+    starting_price: i64,
     schedule: String,
     phone_number: String,
     court_number: String,
@@ -71,7 +70,7 @@ fn get_attribute(html_str: String, attr: impl ToString) -> Option<String> {
 }
 
 fn parse_estate(tr: ElementRef) -> Estate {
-    
+
     let mut estate = Estate {
         num_id: String::from(""),
         kor_id: String::from(""),
@@ -79,8 +78,8 @@ fn parse_estate(tr: ElementRef) -> Estate {
         category: String::from(""),
         address: String::from(""),
         specs: String::from(""),
-        estimated_price: String::from(""),
-        starting_price: String::from(""),
+        estimated_price: 0,
+        starting_price: 0,
         phone_number: String::from(""),
         schedule: String::from(""),
         court_number: String::from(""),
@@ -114,8 +113,20 @@ fn parse_estate(tr: ElementRef) -> Estate {
         if td_idx == 5 {
             let td_inner = td.inner_html();
             let splitted: Vec<&str> = td_inner.split("\n").collect();
-            estate.estimated_price = splitted[2].trim().replace(",", "").to_owned();
-            estate.starting_price = splitted[6].trim().replace(",", "").to_owned();
+
+            let estimated_price = match splitted[2].trim().replace(",", "").parse::<i64>() {
+                Ok(price) => price,
+                Err(error) => -1
+            };
+            let starting_price = match splitted[6].trim().replace(",", "").parse::<i64>() {
+                Ok(price) => price,
+                Err(error) => -1
+            };
+
+            if estimated_price == -1 || starting_price == -1 {
+                println!("금액 구문 분석 중 오류가 발생했습니다. est: {} | srt: {}", splitted[2].trim().replace(",", ""), splitted[6].trim().replace(",", ""));
+            }
+            
         }
         if td_idx == 6 {
             let td_inner = td.inner_html();
@@ -139,8 +150,7 @@ fn parse_estate(tr: ElementRef) -> Estate {
     estate
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-
+fn scrap_auction() -> Result<(), Box<dyn std::error::Error>> {
     let mut postgres_client = postgres::Client::connect("host=localhost user=postgres", postgres::NoTls).unwrap();
 
     postgres_client.query(r#"CREATE TABLE IF NOT EXISTS estates (
@@ -158,17 +168,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         failed_count VARCHAR(20)
     );"#, &[])?;
 
-    /*
-    for row in postgres_client.query("SELECT id, name FROM TEST_TABLE", &[]).unwrap() {
-        let id: i32 = row.get(0);
-        let name: &str = row.get(1);
     
-        println!("found person: {} {}", id, name);
-    }
-    */
-    //let query = r#"curl https://www.courtauction.go.kr/RetrieveRealEstMulDetailList.laf -d srnID=PNO102000&jiwonNm=%BE%C8%BB%EA%C1%F6%BF%F8&bubwLocGubun=1&jibhgwanOffMgakPlcGubun=&mvmPlaceSidoCd=&mvmPlaceSiguCd=&roadPlaceSidoCd=&roadPlaceSiguCd=&daepyoSidoCd=&daepyoSiguCd=&daepyoDongCd=&rd1Cd=&rd2Cd=&rd3Rd4Cd=&roadCode=&notifyLoc=1&notifyRealRoad=1&notifyNewLoc=1&mvRealGbncd=1&jiwonNm1=%BE%C8%BB%EA%C1%F6%BF%F8&jiwonNm2=%BC%AD%BF%EF%C1%DF%BE%D3%C1%F6%B9%E6%B9%FD%BF%F8&mDaepyoSidoCd=&mvDaepyoSidoCd=&mDaepyoSiguCd=&mvDaepyoSiguCd=&realVowel=00000_55203&vowelSel=00000_55203&mDaepyoDongCd=&mvmPlaceDongCd=&_NAVI_CMD=&_NAVI_SRNID=&_SRCH_SRNID=PNO102000&_CUR_CMD=RetrieveMainInfo.laf&_CUR_SRNID=PNO102000&_NEXT_CMD=RetrieveRealEstMulDetailList.laf&_NEXT_SRNID=PNO102002&_PRE_SRNID=PNO102001&_LOGOUT_CHK=&_FORM_YN=Y"#;
-    
-    let loc = chrono::Local::now() + Duration::days(14);
+
+    let loc = chrono::Local::now() + Duration::days(10);
     let year: String = loc.year().to_string();
     let mut month: String = loc.month().to_string();
     let mut day: String = loc.day().to_string();
@@ -211,70 +213,69 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let document = Html::parse_fragment(&res);
     
         let tr_selector = make_selector("tr.Ltbl_list_lvl0");
-        
         for (tr_idx, tr) in document.select(&tr_selector).enumerate() {
             estates.push(parse_estate(tr));
         }
 
-        //target_row = target_row + 1;
+        let tr_selector2 = make_selector("tr.Ltbl_list_lvl1");
+        for (tr_idx, tr) in document.select(&tr_selector2).enumerate() {
+            estates.push(parse_estate(tr));
+        }
+        println!("target row(검색 시작 위치, 40 간격): {}", target_row);
+        target_row = target_row + 40;
 
-        let delay = std::time::Duration::from_secs(3);
-        println!("건전한 스크래핑을 위해 텀을 둡니다. 3초 후 재검색합니다.");
+        let delay = std::time::Duration::from_secs(2);
+        
+        println!("건전한 스크래핑을 위해 텀을 둡니다. 2초 후 재검색합니다.");
         std::thread::sleep(delay);
-        break;
     }
 
     for est in estates {
-        println!("{} | {} | {} | {} | {} | {} | {} | {} | {} | {}", 
-            est.num_id,
-            est.kor_id,
-            est.court,
-            est.category,
-            est.address,
-            est.estimated_price,
-            est.starting_price,
-            est.phone_number,
-            est.court_number,
-            est.failed_count
-        );
         
-        let rows = client.query("SELECT * FROM estates  WHERE kor_id = $1", &[&est.kor_id])?;
-        if rows.size() > 0 {
-            /* 
+        let rows = postgres_client.query("SELECT * FROM estates  WHERE kor_id = $1", &[&est.kor_id])?;
+        if rows.len() > 0 {
+            
             postgres_client.execute(
                 r#"UPDATE estates
-                    SET num_id = '$1',
-                    court = '$3',
-                    category = '$4',
-                    address = '$5',
-                    original_price = '$6',
-                    starting_price = '$7',
-                    phone_number = '$8',
-                    court_number = '$9',
-                    failed_count = '$10'
-                    WHERE kor_id = '$2'
+                    SET num_id = $1,
+                    court = $3,
+                    category = $4,
+                    address = $5,
+                    specs = $6,
+                    estimated_price = $7,
+                    starting_price = $8,
+                    phone_number = $9,
+                    schedule = $10,
+                    court_number = $11,
+                    failed_count = $12
+                    WHERE kor_id = $2
                 "#,
-                &[&est.num_id, &est.kor_id, &est.court, &est.category, &est.address, &est.estimated_price,
-                     &est.starting_price, &est.phone_number, &est.court_number, &est.failed_count],
-            )?;*/
+                &[&est.num_id, &est.kor_id, &est.court, &est.category, &est.address, & est.specs, &est.estimated_price,
+                     &est.starting_price, &est.phone_number, &est.schedule, &est.court_number, &est.failed_count],
+            )?;
             println!("estate exists");
         } else {
-            /* 
+            
             postgres_client.execute(
-                r#"INSERT INTO estates(num_id, kor_id, court, category, address, original_price, starting_price, phone_number, court_number, failed_count) 
-                values('$1', '$2', '$3', '$4', '$5', $6, $7, '$8', '$9', '$10')"#,
-                &[&est.num_id, &est.kor_id, &est.court, &est.category, &est.address, &est.estimated_price,
-                     &est.starting_price, &est.phone_number, &est.court_number, &est.failed_count],
-            )?;*/
+                r#"INSERT INTO estates(num_id, kor_id, court, category, address, specs, estimated_price, starting_price, phone_number, schedule, court_number, failed_count) 
+                values($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#,
+                &[&est.num_id, &est.kor_id, &est.court, &est.category, &est.address, & est.specs, &est.estimated_price,
+                     &est.starting_price, &est.phone_number, &est.schedule, &est.court_number, &est.failed_count],
+            )?;
             println!("estate not exists");
         }
-        /* 
-        postgres_client.execute(
-            r#"INSERT INTO estate(num_id, kor_id, court, category, address, original_price, starting_price, phone_number, court_number, failed_count) 
-            values('$1', '$2', '$3', '$4', '$5', $6, $7, '$8', '$9', '$10')"#,
-            &[&est.num_id, &est.kor_id, &est.court, &est.category, &est.address, &est.estimated_price,
-                 &est.starting_price, &est.phone_number, &est.court_number, &est.failed_count],
-        )?;*/
+    }
+    Ok(())
+}
+
+fn main() {
+    loop {
+        match scrap_auction() {
+            Ok(_) => println!("schedule complete..."),
+            Err(_) => println!("error occured with run schedule..."),
+        }
+        let delay = std::time::Duration::from_secs(86400);        
+        std::thread::sleep(delay);
     }
     /* 
     let rows_updated = postgres_client.execute(
@@ -307,5 +308,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //println!("{}", court_info["서울중앙지방법원"]["srn_id"]);
     //println!("{}", encoded_court_name);
      */
-    Ok(())
+    
 }
