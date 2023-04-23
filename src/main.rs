@@ -170,7 +170,7 @@ fn scrap_auction() -> Result<(), Box<dyn std::error::Error>> {
 
     
 
-    let loc = chrono::Local::now() + Duration::days(10);
+    let loc = chrono::Local::now() + Duration::days(14);
     let year: String = loc.year().to_string();
     let mut month: String = loc.month().to_string();
     let mut day: String = loc.day().to_string();
