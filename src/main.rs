@@ -3,6 +3,7 @@ use encoding::{DecoderTrap, label::encoding_from_whatwg_label, EncoderTrap};
 use chrono::{Duration, Datelike, Utc};
 use reqwest::header;
 use scraper::{Html, Selector, ElementRef};
+use dotenv::dotenv;
 
 struct Estate {
     num_id: String,
@@ -151,7 +152,11 @@ fn parse_estate(tr: ElementRef) -> Estate {
 }
 
 fn scrap_auction() -> Result<(), Box<dyn std::error::Error>> {
-    let mut postgres_client = postgres::Client::connect("host=localhost user=postgres", postgres::NoTls).unwrap();
+
+    let db_url = std::env::var("db_url").unwrap();
+    println!("{}", db_url);
+
+    let mut postgres_client = postgres::Client::connect(db_url.as_str(), postgres::NoTls).unwrap();
 
     postgres_client.query(r#"CREATE TABLE IF NOT EXISTS estates (
         num_id VARCHAR(50),
@@ -269,6 +274,7 @@ fn scrap_auction() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn main() {
+    dotenv().ok();
     loop {
         match scrap_auction() {
             Ok(_) => println!("schedule complete..."),
